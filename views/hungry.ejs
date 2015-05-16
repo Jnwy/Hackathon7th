@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>I'm Feeling Hungry</title>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+
+    <style>
+    html,
+    body {
+        width: 100%;
+        height: 100%;
+        margin: 0px;
+        padding: 0px;
+        position: relative;
+    }
+    #map-canvas {
+        height: 100%;
+        width: 100%;
+    }
+    #panel-left {
+        top: 50px;
+        right: 10px;
+        width: 300px;
+        height: 85%;
+        position: absolute;
+    }
+    .control {
+        border: 1px solid #606060;
+        background-color: #f0f0f0;
+        -moz-box-shadow: 2px 2px 3px #888;
+        -webkit-box-shadow: 2px 2px 3px #888;
+        box-shadow: 2px 2px 2px #888;
+        padding-left: 5px;
+    }
+    </style>
+    <script src="//maps.googleapis.com/maps/api/js?v=3.exp"></script>
+    <script src="//code.jquery.com/jquery-1.11.1.min.js"></script>
+    <script src="//dl.dropboxusercontent.com/u/26467764/lunch-demo/Chart.js"></script>
+
+
+</head>
+
+<body>
+
+
+    <div id="map-canvas"></div>
+
+    <div id="panel-left" class="control">
+        <h2>I'm Feeling Hungry</h2>
+        <div id="infoPanel">
+            <b>Current position:</b>
+            <div id="info"></div>
+            <br>
+            <b>Closest matching address:</b>
+            <div id="address"></div>
+        </div>
+        <br>
+        <div>
+            <h3>美食關鍵字：
+                <input type="text" value="coffee" id="queryString" />
+            </h3>
+            <h3>搜尋範圍：
+                <input type="text" value="1000" id="distance" />
+            </h3>
+            <!-- <button id="searchAround">搖一搖</button> -->
+            <div id="canvas-holder"></div>
+        </div>
+    </div>
+
+
+    <script>
+    var mapManager = window.mapManager = {};
+    mapManager.var = {
+        map: {},
+        markerAry: [],
+        infowindow: {},
+        initParamCenter: {},
+        userMarker: {},
+        searchCircle: {}
+    };
+    mapManager.action = (function() {
+
+        var geocoder = new google.maps.Geocoder();
+
+        function geocodePosition(pos) {
+            geocoder.geocode({
+                latLng: pos
+            }, function(responses) {
+                if (responses && responses.length > 0) {
+                    updateMarkerAddress(responses[0].formatted_address);
+                } else {
+                    updateMarkerAddress('Cannot determine address at this location.');
+                }
+            });
+        }
+
+        function updateMarkerPosition(latLng) {
+            document.getElementById('info').innerHTML = [
+                latLng.lat(),
+                latLng.lng()
+            ].join(', ');
+        }
+
+        function updateMarkerAddress(str) {
+            document.getElementById('address').innerHTML = str;
+        }
+
+
+        return {
+            initialize: function() {
+
+                mapManager.var.initParamCenter = new google.maps.LatLng(25.02674, 121.522926);
+                var mapOptions = {
+                    zoom: 15,
+                    center: mapManager.var.initParamCenter
+                };
+                mapManager.var.map = new google.maps.Map(document.getElementById('map-canvas'),
+                    mapOptions);
+                mapManager.var.infowindow = new google.maps.InfoWindow();
+                mapManager.var.userMarker = new google.maps.Marker({
+                    map: mapManager.var.map,
+                    draggable: true,
+                    animation: google.maps.Animation.DROP,
+                    icon: '//dl.dropboxusercontent.com/u/66791072/icon/1400572140_user_spiderman.png'
+                });
+
+                google.maps.event.addListener(mapManager.var.userMarker, 'drag', function() {
+                    updateMarkerPosition(this.getPosition());
+                });
+
+                google.maps.event.addListener(mapManager.var.userMarker, 'dragend', function() {
+                    mapManager.var.searchCircle.setCenter(this.getPosition());
+                    geocodePosition(this.getPosition());
+                    mapManager.overlay.clearMarkers();
+                    fb.search.place($('#queryString').val(), $('#distance').val());
+                });
+
+                mapManager.var.searchCircle = new google.maps.Circle({
+                    strokeColor: '#3EA3E7',
+                    strokeOpacity: 0.8,
+                    strokeWeight: 2,
+                    fillColor: '#3EA3E7',
+                    fillOpacity: 0.35,
+                    map: mapManager.var.map,
+                    radius: 1000
+                });
+
+
+            },
+            geolocation: function() { //定位.
+
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(showPosition, errorCallback);
+                } else {
+                    alert("地址定位錯誤");
+                }
+
+                function errorCallback(error) {
+                    var errorTypes = {
+                        0: "不明原因錯誤,將使用預設位置",
+                        1: "使用者拒絕提供位置資訊,將使用預設位置",
+                        2: "無法取得位置資訊,將使用預設位置",
+                        3: "位置查詢逾時,將使用預設位置"
+                    };
+                    alert(errorTypes[error.code]);
+                    var fakePosition = {
+                        coords: { // 台北轉運站.
+                            latitude: 25.04898,
+                            longitude: 121.517077,
+                            isFake: true
+                        }
+                    };
+                    showPosition(fakePosition);
+                }
+
+                function showPosition(position) {
+                    var myLatlng = new google.maps.LatLng(position.coords.latitude, position.coords.longitude);
+                    mapManager.var.userMarker.setPosition(myLatlng);
+                    mapManager.var.searchCircle.setCenter(myLatlng);
+                    geocodePosition(mapManager.var.userMarker.getPosition());
+                    updateMarkerPosition(mapManager.var.userMarker.getPosition());
+                    fb.search.place($('#queryString').val(), $('#distance').val());
+                }
+            }
+        }
+    })();
+
+    mapManager.overlay = (function() {
+        var infowindow;
+
+        function addMarker(lat, lng, name, infowindowContent) {
+            var _marker = new google.maps.Marker({
+                position: new google.maps.LatLng(lat, lng),
+                map: mapManager.var.map,
+                icon: '//dl.dropboxusercontent.com/u/66791072/lunch-demo/images/food.png',
+                title: name
+            });
+            mapManager.var.markerAry.push(_marker)
+            google.maps.event.addListener(_marker, 'click', function() {
+                if (infowindow) {
+                    infowindow.close();
+                }
+                showInfo(infowindowContent);
+                infowindow.open(mapManager.var.map, this);
+            });
+        };
+
+        function showInfo(content) {
+            infowindow = new google.maps.InfoWindow({
+                content: content
+            });
+        }
+
+        return {
+            addMarker: addMarker,
+            clearMarkers: function() {
+                if (mapManager.var.markerAry) {
+                    for (i in mapManager.var.markerAry) {
+                        mapManager.var.markerAry[i].setMap(null);
+                    }
+                    mapManager.var.markerAry.length = 0;
+                }
+            }
+        }
+
+    })();
+
+    var fb = window.fb = {};
+    fb.search = (function() {
+
+        return {
+            place: function(queryString, distance) {
+                var center = mapManager.var.userMarker.getPosition().toString().replace('(', '').replace(')', '');
+                $.ajax({
+                    url: 'https://graph.facebook.com/v2.0/search',
+                    data: {
+                        'q': queryString,
+                        'center': center,
+                        'distance': distance,
+                        'type': 'place',
+                        'method': 'GET',
+                        'format': 'json',
+                        'suppress_http_code': 1,
+                        'access_token': '736264053097178|650c1ea58624dd2fc780b1ef4ad40010'
+                    },
+                    dataType: 'json',
+                    method: 'POST',
+                    success: function(responses) {
+                        var category_arr = [];
+                        if (responses.data != null) {
+                            for (var i = responses.data.length - 1; i >= 0; i--) {
+                                var poi = responses.data[i]
+                                    //console.log(poi);
+                                mapManager.overlay.addMarker(poi.location.latitude, poi.location.longitude, poi.name, poi.name);
+                                console.log(poi);
+                                if (!check_repeat(category_arr, poi.category)) {
+                                    category_arr.push(poi.category);
+                                }
+                            };
+                        }
+
+                        $('#canvas-holder').html("<canvas id='chart-area' width='200' height='200'/>");
+
+                        var pieData = [];
+                        for (var x = 0; x < category_arr.length; x++) {
+                            var category_count = sum_repeat_value(responses.data, category_arr[x]);
+                           // alert(category_count);
+                            var obj = new Object();
+                            obj.value = category_count;
+                            if (x == 0) {
+                                obj.color = "#F7464A";
+                                obj.highlight = "#FF5A5E";
+                            }
+                            if (x == 1) {
+                                obj.color = "#46BFBD";
+                                obj.highlight = "#5AD3D1";
+                            }
+                            if (x == 2) {
+                                obj.color = "#FDB45C";
+                                obj.highlight = "#FFC870";
+                            }
+                            if (x == 3) {
+                                obj.color = "#949FB1";
+                                obj.highlight = "#A8B3C5";
+                            }
+                            if (x == 4) {
+                                obj.color = "#4D5360";
+                                obj.highlight = "#616774";
+                            }
+                            obj.label = category_arr[x];
+                            pieData.push(obj);
+                        }
+
+                        var ctx = document.getElementById("chart-area").getContext("2d");
+                        window.myPie = new Chart(ctx).Pie(pieData);
+                    },
+                    error: function(error) {},
+                });
+
+                function check_repeat(arr, value) { //判斷是否存在於陣列中
+                    for (var x = 0, size = arr.length; x < size; x++) {
+                        if (arr[x] == value) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                function sum_repeat_value(arr, value) { //計數陣列重覆值
+                    var sum_repeat_value = 0;
+                    for (var x = 0, size = arr.length; x < size; x++) {
+                        var category_obj = arr[x];
+                        var obj_value = category_obj.category;
+                        if (value == obj_value) sum_repeat_value++;
+                    }
+                    return sum_repeat_value;
+                }
+
+            }
+        }
+
+    })();
+    jQuery(function($) {
+        mapManager.action.initialize();
+        mapManager.action.geolocation();
+
+        $("#distance").change(function() {
+            mapManager.var.searchCircle.setRadius($(this).val());
+        });
+
+    });
+    </script>
+
+
+</body>
+
+</html>

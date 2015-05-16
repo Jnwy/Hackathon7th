@@ -3,7 +3,7 @@ var router = express.Router();
 
 /* GET material page. */
 router.get('/', function(req, res, next) {
-  res.render('material', { title: '巫砲小隊' });
+  res.render('hungry', { title: '肚子餓惹' });
 });
 
 module.exports = router;
